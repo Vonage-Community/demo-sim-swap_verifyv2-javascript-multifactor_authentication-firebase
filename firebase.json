@@ -1,0 +1,59 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/sendcode",
+        "function": "sendCode"
+      },
+      {
+        "source": "/simswap",
+        "function": "simSwap"
+      },
+      {
+        "source": "/verify",
+        "function": "verify"
+      },
+      {
+        "source": "/update",
+        "function": "update"
+      },
+      {
+        "source": "/login",
+        "function": "login"
+      },
+      {
+        "source": "/main",
+        "destination": "/main.html"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "functions": {
+    "runtime": "nodejs18",
+    "source": "functions"
+  },
+  "emulators": {
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "hosting": {
+      "port": 5000
+    },
+    "ui": {
+      "enabled": true
+    },
+    "singleProjectMode": true
+  }
+}
