@@ -1,4 +1,4 @@
-const functions = require("firebase-functions");
+const functions = require("firebase-functions/v1");
 require("dotenv").config();
 const { Auth } = require("@vonage/auth");
 const { Vonage } = require("@vonage/server-sdk");
