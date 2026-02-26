@@ -25,7 +25,7 @@ const identityClient = new IdentityInsights(
 );
 
 async function checkSim(phoneNumberParam) {
-  // Ensure E.164 format (e.g. 447402548998 → +447402548998)
+  // Ensure E.164 format
   if (phoneNumberParam && !phoneNumberParam.startsWith("+")) {
     phoneNumberParam = "+" + phoneNumberParam;
   }
@@ -95,14 +95,11 @@ exports.sendCode = functions.https.onRequest(async (req, res) => {
       .get();
 
     let document = snapshot.docs[0];
-    db.collection("credentials")
+    await db
+      .collection("credentials")
       .doc(document.id)
       .update({
         request_id: requestId,
-      })
-      .then(() => { })
-      .catch((error) => {
-        console.error("Error writing document: ", error);
       });
 
     res.json({
