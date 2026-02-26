@@ -1,9 +1,9 @@
-const functions = require("firebase-functions");
+const functions = require("firebase-functions/v1");
 require("dotenv").config();
-const axios = require("axios");
 const { Auth } = require("@vonage/auth");
 const { Vonage } = require("@vonage/server-sdk");
 const { Channels } = require("@vonage/verify2");
+const { IdentityInsights } = require("@vonage/identity-insights");
 const admin = require("firebase-admin");
 
 admin.initializeApp();
@@ -17,76 +17,45 @@ const vonage = new Vonage(
   })
 );
 
-const scope = "dpv:FraudPreventionAndDetection#check-sim-swap";
-const authReqUrl = "https://api-eu.vonage.com/oauth2/bc-authorize";
-const tokenUrl = "https://api-eu.vonage.com/oauth2/token";
-const simSwapApiUrl = "https://api-eu.vonage.com/camara/sim-swap/v040/check";
-
-async function authenticate(phone, scope) {
-  try {
-    console.log(`Authenticating for phone: ${phone} with scope: ${scope}`);
-    const authReqResponse = await axios.post(
-      authReqUrl,
-      {
-        login_hint: phone,
-        scope: scope,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.JWT}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-      }
-    );
-    const authReqId = authReqResponse.data.auth_req_id;
-
-    const tokenResponse = await axios.post(
-      tokenUrl,
-      {
-        auth_req_id: authReqId,
-        grant_type: "urn:openid:params:grant-type:ciba",
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.JWT}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-      }
-    );
-    return tokenResponse.data.access_token;
-  } catch (error) {
-    console.error(
-      "Error during authentication:",
-      error.response?.data || error.message
-    );
-    throw error;
-  }
-}
+const identityClient = new IdentityInsights(
+  new Auth({
+    applicationId: process.env.VONAGE_APPLICATION_ID,
+    privateKey: process.env.VONAGE_PRIVATE_KEY,
+  })
+);
 
 async function checkSim(phoneNumberParam) {
+  // Ensure E.164 format
+  if (phoneNumberParam && !phoneNumberParam.startsWith("+")) {
+    phoneNumberParam = "+" + phoneNumberParam;
+  }
   try {
     console.log(`Checking SIM swap for phone number: ${phoneNumberParam}`);
-    const accessToken = await authenticate(phoneNumberParam, scope);
-    const response = await axios.post(
-      simSwapApiUrl,
-      {
-        phoneNumber: phoneNumberParam,
-        maxAge: process.env.MAX_AGE,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
+    const resp = await identityClient.getIdentityInsights({
+      phoneNumber: phoneNumberParam,
+      purpose: "FraudPreventionAndDetection",
+      insights: {
+        simSwap: {
+          period: parseInt(process.env.PERIOD),
         },
-      }
-    );
-    return response.data.swapped;
+      },
+    });
+
+    console.log("Identity Insights response:", JSON.stringify(resp, null, 2));
+
+    const simSwap = resp?.insights?.simSwap;
+    if (!simSwap) {
+      console.warn("No simSwap data in response");
+      return false;
+    }
+    if (simSwap.status && simSwap.status.code !== "OK") {
+      console.warn(`SIM swap check status: ${simSwap.status.code} - ${simSwap.status.message}`);
+      return false;
+    }
+    return simSwap.isSwapped === true;
   } catch (error) {
-    console.error(
-      "Error checking SIM swap:",
-      error.response?.data || error.message
-    );
-    throw error;
+    console.error("Identity Insights SDK call failed:", error?.message, error);
+    throw error; // let caller return 500 instead of silently returning undefined
   }
 }
 
@@ -126,14 +95,11 @@ exports.sendCode = functions.https.onRequest(async (req, res) => {
       .get();
 
     let document = snapshot.docs[0];
-    db.collection("credentials")
+    await db
+      .collection("credentials")
       .doc(document.id)
       .update({
         request_id: requestId,
-      })
-      .then(() => {})
-      .catch((error) => {
-        console.error("Error writing document: ", error);
       });
 
     res.json({
@@ -213,10 +179,10 @@ exports.login = functions.https.onRequest(async (req, res) => {
       .where("username", "==", username)
       .limit(1)
       .get();
-    let document = snapshot.docs[0];
-    if (!document.exists) {
-      throw new Error("Password not found.");
+    if (snapshot.empty) {
+      return res.status(401).json({ message: "Invalid user and password" });
     }
+    let document = snapshot.docs[0];
     const storedPassword = document.data().password;
 
     if (password === storedPassword) {
